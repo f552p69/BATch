@@ -1,5 +1,5 @@
 @echo off
-echo *** Unpack 7z^|zip archive into separate unique directory
+echo *** Unpack 7z^|zip archive into separate unique directory v0.02
 :: My most favorite free archiver (https://www.7-zip.org/download.html):
 call :set_var_if_path_exists cli7za "7za.exe"
 :: Required external utilities. Most of them are from GIT package (https://git-scm.com/download/win):
@@ -15,15 +15,20 @@ set "src=%~1"
 if "%src%"=="" (
     echo Usage: %~nx0 ^<archive.(7z^|zip^)^> [destination directory]
     echo If optional argument [destination directory] is not defined, archive will be unpacked into current directory.
-    exit /b
+    exit
 )
+set "src_fname=%~n1"
 
-set dst_root=%2\
+set dst_root=%2
 if "%2"=="" set dst_root=.%dst_root%
-if "%dst_root:~-2%"=="\\" set dst_root=%dst_root:~0,-1%
+if "%dst_root:~-1%"=="\" set dst_root=%dst_root:~0,-1%
+
+for /f "skip=1" %%x in ('wmic os get localdatetime') do (set yyyymmdd=%%x&&goto break_generate_unique)
+:break_generate_unique
+set "unique=%yyyymmdd:~2,12%%yyyymmdd:~15,3%"
 
 :: 1) Get the list of files from archive
-:: 2) Exclude directories from the list 
+:: 2) Exclude directories from the list
 :: 3) Sort file names
 :: 4) Fetch first directory (or file name if in the root of archive)
 :: 5) Leave only unique directory or file name(s), and save into "%TEMP%\$tmp$.dstdir"
@@ -31,37 +36,43 @@ if "%dst_root:~-2%"=="\\" set dst_root=%dst_root:~0,-1%
  | "%perl%" -pe "s/(.{20}\..{32}(.*))|(.*)/\2/gs" ^
  | "%sort%" ^
  | "%perl%" -pe "s|([^\\\\]*).*|\1|" ^
- | "%uniq%" > "%TEMP%\$tmp$.dstdir"
+ | "%uniq%" > "%TEMP%\%unique%.dstdir.tmp"
 
 :: 6) Count number of unique directories or file names
 :: 7) Remove empty lines
 :: 8) Take value (number) after ': ', and save into "%TEMP%\$tmp$.count_of_lines"
-"%find%" /c /v "Dummy text" "%TEMP%\$tmp$.dstdir" ^
+"%find%" /c /v "Dummy text" "%TEMP%\%unique%.dstdir.tmp" ^
  | "%awk%" /./ ^
- | "%perl%" -pe "s/(^.*: (.*)$)/\2/" > "%TEMP%\$tmp$.count_of_lines"
+ | "%perl%" -pe "s/(^.*: (.*)$)/\2/" > "%TEMP%\%unique%.count_of_lines.tmp"
 
 :: 9) Save value (count of the lines in "%TEMP%\$tmp$.dstdir") into var %count_of_lines%
-for /f "delims=" %%A in ('type "%TEMP%\$tmp$.count_of_lines"') do set "count_of_lines=%%A"&&goto :just_only_first_line
-:just_only_first_line
+for /f "delims=" %%A in ('type "%TEMP%\%unique%.count_of_lines.tmp"') do set "count_of_lines=%%A"&&goto :break_read_only_first_line
+:break_read_only_first_line
 :: echo count_of_lines=%count_of_lines%
 
-:: If unique name is single, then all files were grouped inside one dir => unpack into %dst_dir%
-:: else: unpack into dir with name of archive inside %dst_dir%
-if "%count_of_lines%"=="1" (
-rem if "grouped" dir already exists, then save into unique dir => so path will be not so beautiful: archive.000\archive\...
-rem if NOT exists, so save into dir with name of archive/root dir inside archive => archive\...
-    for /f "delims=" %%A in ('type "%TEMP%\$tmp$.dstdir"') do call :unique_if_exist "%dst_root%%%A"
-) else (
-rem Remove extenstion from %src% (archive.7z) and save into %dst% ((archive)
-rem If such file/dir name ((archive) exists, so save into unique dir => archive.000\...
-rem if NOT exists, so save into dir with name of archive => archive\...
-    for /f "delims=" %%A in ("%src%") do call :unique_if_exist "%dst_root%%%~nA"
-)
-del "%TEMP%\$tmp$.dstdir" 2> nul
-del "%TEMP%\$tmp$.count_of_lines" 2> nul
+if not "%count_of_lines%"=="1" goto :generate_dst_dir
+:generate_tmp_dir
+set "postfix_for_temp_dir=.%unique%"
+:generate_dst_dir
+call :unique_if_exist "%dst_root%\%src_fname%%postfix_for_temp_dir%"
 
+:: Unpack to final directory (if several dirs in the root of archive) or temporary root (if just only single dir in the root of archive)
 echo *** 7za.exe x "%src%" "-o%dst%\"
-7za.exe x "%src%" "-o%dst%"
+7za.exe x "%src%" "-o%dst%\"
+
+if not "%count_of_lines%"=="1" goto :final
+:: if just only single dir in the root of archive, move files from temporary dir into final
+set "unpacked_root_dir=%dst%"
+for /f "delims=" %%A in ('type "%TEMP%\%unique%.dstdir.tmp"') do set "unpacked_dir=%unpacked_root_dir%\%%A"&&set "dst=%dst_root%\%%A"
+call :unique_if_exist "%dst%"
+echo *** move "%unpacked_dir%" "%dst%"
+move "%unpacked_dir%" "%dst%" > nul
+echo *** rmdir "%unpacked_root_dir%"
+rmdir "%unpacked_root_dir%"
+
+:final
+del "%TEMP%\%unique%.dstdir.tmp" 2> nul
+del "%TEMP%\%unique%.count_of_lines.tmp" 2> nul
 goto :eof
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 :unique_if_exist
@@ -69,8 +80,8 @@ goto :eof
 :: Out: %dst% as UNIQUE directory/file name, which doesn't exist
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 set "dst=%~1"
-if not exist "%dst%" goto :eof
-set count_int=-1
+if not exist "%~1" goto :eof
+REM set count_int=0
 :next_unique_file
 set /a count_int=%count_int%+1
 set count_str=00%count_int%
