@@ -94,10 +94,6 @@ goto :eof
 :: In:  %1 as var name, %2 exe/bat file name
 :: Out: !%1! == %2 or interrupt of execution
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-setlocal
-for %%* in ("%~1") do set "$VAR$=%%~nx*"
-endlocal & set "$VAR$=%$VAR$%"
-
 set "found_file=%~2"
 if exist "%~2" goto :define_var
 if "%~x2"==".bat" goto :look_in_PATH
@@ -105,13 +101,12 @@ if "%~x2"==".cmd" goto :look_in_PATH
 if "%~x2"==".exe" goto :look_in_PATH
 if "%~x2"==".py" goto :look_in_PATH
 if "%~x2"==".pl" goto :look_in_PATH
-
-echo Path of the file '%~2' which should be stored in variable %%%$VAR$%%% doesn't exists
+:notfound_in_PATH
+echo File '%~2' which should be stored in variable %%%~1%% doesn't exists
 exit
 :look_in_PATH
 for /f "delims=" %%A in ('where "%~nx2"') do set "found_file=%%A"&&goto :define_var
+goto :notfound_in_PATH
 :define_var
-call set "%$VAR$%=%found_file%"
-::echo %$VAR$%=%found_file%
+set "%~1=%found_file%"
 goto :eof
-::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
