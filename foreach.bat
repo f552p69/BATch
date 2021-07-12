@@ -6,7 +6,7 @@ if "%~2"=="" (
 )
 echo Searching...
 
-for /f %%i in ('dir /b /s %1') do (
+for /f %%i in ('dir /b /s %~1') do (
     echo ******* %%i
     echo *** %~2
     %~2
